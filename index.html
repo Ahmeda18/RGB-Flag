@@ -185,10 +185,15 @@
         const div = document.getElementById('clusters');
         let html = '';
         for (let c = 0; c < k; c++) {
-            html += `<h3>Cluster ${c+1}</h3><ul>`;
+            html += `<h3>Cluster ${c+1}</h3><ul style='list-style:none;padding-left:0;'>`;
             for (let i = 0; i < data.length; i++) {
                 if (clusters[i] === c) {
-                    html += `<li>${data[i].name} <span style="color:rgb(${data[i].rgb.map(x=>Math.round(x)).join(',')})">&#9632;</span></li>`;
+                    const imgSrc = `${flagFolder}${data[i].name}.png`;
+                    html += `<li style='display:flex;align-items:center;margin-bottom:8px;'>`
+                        + `<img src='${imgSrc}' alt='${data[i].name} flag' style='width:40px;height:24px;object-fit:cover;margin-right:10px;border:1px solid #ccc;border-radius:4px;'>`
+                        + `<span>${data[i].name}</span> `
+                        + `<span style=\"color:rgb(${data[i].rgb.map(x=>Math.round(x)).join(',')})\">&#9632;</span>`
+                        + `</li>`;
                 }
             }
             html += '</ul>';
