@@ -1,0 +1,166 @@
+// Helper to get all flag image paths
+const flagFolder = 'state_flags_png/';
+const flagNames = [
+    'Alabama','Alaska','Arizona','Arkansas','California','Colorado','Connecticut','Delaware','Florida','Georgia','Hawaii','Idaho','Illinois','Indiana','Iowa','Kansas','Kentucky','Louisiana','Maine','Maryland','Massachusetts','Michigan','Minnesota','Mississippi','Missouri','Montana','Nebraska','Nevada','New_Hampshire','New_Jersey','New_Mexico','New_York','North_Carolina','North_Dakota','Ohio','Oklahoma','Oregon','Pennsylvania','Rhode_Island','South_Carolina','South_Dakota','Tennessee','Texas','Utah','Vermont','Virginia','Washington','West_Virginia','Wisconsin','Wyoming'
+];
+
+// Load all images and get average RGBs
+async function getFlagRGBs() {
+    const results = [];
+    for (const name of flagNames) {
+        const img = new Image();
+        img.src = `${flagFolder}${name}.png`;
+        await new Promise((resolve) => { img.onload = resolve; });
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const data = ctx.getImageData(0, 0, img.width, img.height).data;
+        let r = 0, g = 0, b = 0, count = 0;
+        for (let i = 0; i < data.length; i += 4) {
+            r += data[i];
+            g += data[i+1];
+            b += data[i+2];
+            count++;
+        }
+        results.push({
+            name,
+            rgb: [r/count, g/count, b/count]
+        });
+    }
+    return results;
+}
+
+// Simple k-means clustering
+function kMeans(data, k=5, maxIter=100) {
+    // Randomly initialize centroids
+    let centroids = [];
+    for (let i = 0; i < k; i++) {
+        centroids.push(data[Math.floor(Math.random()*data.length)].rgb.slice());
+    }
+    let clusters = Array(data.length).fill(0);
+    for (let iter = 0; iter < maxIter; iter++) {
+        // Assign clusters
+        for (let i = 0; i < data.length; i++) {
+            let minDist = Infinity, minIdx = 0;
+            for (let j = 0; j < k; j++) {
+                let d = dist(data[i].rgb, centroids[j]);
+                if (d < minDist) { minDist = d; minIdx = j; }
+            }
+            clusters[i] = minIdx;
+        }
+        // Update centroids
+        let sums = Array(k).fill().map(()=>[0,0,0]);
+        let counts = Array(k).fill(0);
+        for (let i = 0; i < data.length; i++) {
+            let c = clusters[i];
+            sums[c][0] += data[i].rgb[0];
+            sums[c][1] += data[i].rgb[1];
+            sums[c][2] += data[i].rgb[2];
+            counts[c]++;
+        }
+        for (let j = 0; j < k; j++) {
+            if (counts[j] > 0) {
+                centroids[j] = [sums[j][0]/counts[j], sums[j][1]/counts[j], sums[j][2]/counts[j]];
+            }
+        }
+    }
+    return clusters;
+}
+function dist(a, b) {
+    return Math.sqrt((a[0]-b[0])**2 + (a[1]-b[1])**2 + (a[2]-b[2])**2);
+}
+
+// Plot RGB points in 3D (simple projection)
+// 3D RGB scatter plot using Three.js
+function plotRGB(data, clusters, k) {
+    // Remove old renderer if exists
+    let oldCanvas = document.getElementById('threejs-canvas');
+    if (oldCanvas) oldCanvas.remove();
+
+    const width = 600, height = 600;
+    const container = document.getElementById('plot-container');
+    // Create Three.js scene
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, width/height, 0.1, 1000);
+    camera.position.set(128,128,400);
+    camera.lookAt(128,128,128);
+
+    const renderer = new THREE.WebGLRenderer({antialias:true});
+    renderer.setSize(width, height);
+    renderer.domElement.id = 'threejs-canvas';
+    container.innerHTML = '';
+    container.appendChild(renderer.domElement);
+
+    // Axes
+    const axesHelper = new THREE.AxesHelper(255);
+    scene.add(axesHelper);
+
+    // Cluster colors
+    const clusterColors = ['#e41a1c','#377eb8','#4daf4a','#ff7f00','#984ea3','#ffff33','#a65628','#f781bf'];
+
+    // Plot points
+    for (let i = 0; i < data.length; i++) {
+        const [r,g,b] = data[i].rgb;
+        const geometry = new THREE.SphereGeometry(8, 16, 16);
+        const color = new THREE.Color(clusterColors[clusters[i]%clusterColors.length]);
+        const material = new THREE.MeshBasicMaterial({color: color, opacity: 0.85, transparent: true});
+        const sphere = new THREE.Mesh(geometry, material);
+        sphere.position.set(r, g, b);
+        scene.add(sphere);
+    }
+
+    // Lighting (optional, for better visuals)
+    const light = new THREE.AmbientLight(0xffffff, 0.8);
+    scene.add(light);
+
+    // Simple orbit controls (optional, for interaction)
+    // Minimal vanilla JS rotation
+    let isDragging = false, prevX, prevY, rotY = 0, rotX = 0;
+    renderer.domElement.addEventListener('mousedown', e => {
+        isDragging = true; prevX = e.clientX; prevY = e.clientY;
+    });
+    window.addEventListener('mouseup', () => { isDragging = false; });
+    window.addEventListener('mousemove', e => {
+        if (!isDragging) return;
+        rotY += (e.clientX - prevX) * 0.005;
+        rotX += (e.clientY - prevY) * 0.005;
+        camera.position.x = 128 + 400 * Math.sin(rotY) * Math.cos(rotX);
+        camera.position.y = 128 + 400 * Math.sin(rotX);
+        camera.position.z = 128 + 400 * Math.cos(rotY) * Math.cos(rotX);
+        camera.lookAt(128,128,128);
+        prevX = e.clientX; prevY = e.clientY;
+    });
+
+    function animate() {
+        requestAnimationFrame(animate);
+        renderer.render(scene, camera);
+    }
+    animate();
+}
+
+// Show cluster info
+function showClusters(data, clusters, k) {
+    const div = document.getElementById('clusters');
+    let html = '';
+    for (let c = 0; c < k; c++) {
+        html += `<h3>Cluster ${c+1}</h3><ul>`;
+        for (let i = 0; i < data.length; i++) {
+            if (clusters[i] === c) {
+                html += `<li>${data[i].name} <span style="color:rgb(${data[i].rgb.map(x=>Math.round(x)).join(',')})">&#9632;</span></li>`;
+            }
+        }
+        html += '</ul>';
+    }
+    div.innerHTML = html;
+}
+
+// Main
+(async function(){
+    const flagRGBs = await getFlagRGBs();
+    const k = 5;
+    const clusters = kMeans(flagRGBs, k);
+    plotRGB(flagRGBs, clusters, k);
+    showClusters(flagRGBs, clusters, k);
+})();
